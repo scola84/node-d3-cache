@@ -1,0 +1,13 @@
+{
+  "name": "@scola/d3-cache",
+  "version": "0.0.0",
+  "description": "Cache",
+  "repository": "github:scola84/node-d3-cache",
+  "author": "M.C. van den Boogaart <scola@kvdb.name>",
+  "license": "MIT",
+  "main": "./index.js",
+  "jsnext:main": "./index.js",
+  "dependencies": {
+    "object-hash": "^1.1.7"
+  }
+}
