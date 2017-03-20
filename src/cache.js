@@ -1,19 +1,17 @@
-import { EventEmitter } from 'events';
 import md5 from 'crypto-js/md5';
 import { ScolaError } from '@scola/error';
 
-export default class Cache extends EventEmitter {
+export default class Cache {
   constructor() {
-    super();
-
     this._model = null;
     this._storage = null;
     this._index = null;
 
     this._handleError = (e) => this._error(e);
-    this._handlePublish = () => this._publish();
+    this._handlePublish = (e) => this._publish(e);
     this._handleSet = () => this._set();
     this._handleSelect = (d, t, e) => this._select(d, t, e);
+    this._handleEtag = () => this._etag();
   }
 
   destroy() {
@@ -45,7 +43,9 @@ export default class Cache extends EventEmitter {
   }
 
   load() {
-    const syncValue = this._getItem(this._modelKey(), (error, value) => {
+    const key = this._modelKey();
+
+    const syncValue = this._getItem(key, (error, value) => {
       this._loadGet(error, value);
     });
 
@@ -76,6 +76,7 @@ export default class Cache extends EventEmitter {
   _bindModel() {
     if (this._model) {
       this._model.on('error', this._handleError);
+      this._model.on('etag', this._handleEtag);
       this._model.on('publish', this._handlePublish);
       this._model.on('select', this._handleSelect);
       this._model.on('set', this._handleSet);
@@ -85,22 +86,46 @@ export default class Cache extends EventEmitter {
   _unbindModel() {
     if (this._model) {
       this._model.removeListener('error', this._handleError);
+      this._model.removeListener('etag', this._handleEtag);
       this._model.removeListener('publish', this._handlePublish);
       this._model.removeListener('select', this._handleSelect);
       this._model.removeListener('set', this._handleSet);
     }
   }
 
-  _error(message = '') {
-    this.emit('error', new ScolaError('500 invalid_data ' + message));
+  _error(error) {
+    if (error.status !== 404) {
+      return;
+    }
+
+    this._delete();
   }
 
-  _publish() {
-    this._destroy();
+  _etag() {
+    const key = this._model.mode() === 'list' ?
+      this._listKey() : this._objectKey();
+
+    const syncValue = this._getItem(key, (error, value) => {
+      this._etagGet(error, value);
+    });
+
+    if (syncValue instanceof Promise) {
+      return this;
+    }
+
+    this._etagGet(null, syncValue);
+    return this;
   }
 
-  _set() {
-    this._setItem(this._modelKey(), this._model.local());
+  _publish(event) {
+    const cancel = event.type !== 'delete' ||
+      event.path !== this._model.path(true);
+
+    if (cancel) {
+      return;
+    }
+
+    this._delete();
   }
 
   _select(data, total, etag) {
@@ -114,8 +139,18 @@ export default class Cache extends EventEmitter {
       data,
       total
     });
+  }
 
-    this.emit('select', data, total, etag);
+  _set() {
+    this._setItem(this._modelKey(), this._model.local());
+  }
+
+  _delete() {
+    const key = this._model.mode() === 'list' ?
+      this._listKey() : this._objectKey();
+
+    this._deleteKey(key);
+    this._removeItem(key);
   }
 
   _destroy(full = false) {
@@ -149,39 +184,10 @@ export default class Cache extends EventEmitter {
     this._addKeyGet(null, syncValue, indexKey, key);
   }
 
-  _loadGet(error, value) {
-    if (error) {
-      this._error(error.message);
-      return;
-    }
-
-    this._model.local(value);
-  }
-
-  _selectGet(error, value) {
-    if (error) {
-      this._error(error.message);
-      return;
-    }
-
-    if (value) {
-      this._model.etag(value.etag);
-      this._model.total(value.total);
-      this._model.remote(value.data);
-    }
-
-    if (this._model.connected()) {
-      this._model.select();
-    } else if (value) {
-      this.emit('select', value.data, value.total, value.etag);
-    } else {
-      this._error();
-    }
-  }
-
   _addKeyGet(error, value, indexKey, key) {
     if (error) {
-      this._error(error.message);
+      this._model.emit('error', new ScolaError('500 invalid_data ' +
+        error.message));
       return;
     }
 
@@ -193,6 +199,77 @@ export default class Cache extends EventEmitter {
 
     this._index.add(key);
     this._setItem(indexKey, Array.from(this._index));
+  }
+
+  _deleteKey(key) {
+    const indexKey = this._indexKey();
+
+    const syncValue = this._getItem(indexKey, (error, value) => {
+      this._deleteKeyGet(error, value, indexKey, key);
+    });
+
+    if (syncValue instanceof Promise) {
+      return;
+    }
+
+    this._deleteKeyGet(null, syncValue, indexKey, key);
+  }
+
+  _deleteKeyGet(error, value, indexKey, key) {
+    if (error) {
+      this._model.emit('error', new ScolaError('500 invalid_data ' +
+        error.message));
+      return;
+    }
+
+    value = value || [];
+
+    if (!this._index) {
+      this._index = new Set(value);
+    }
+
+    this._index.delete(key);
+    this._setItem(indexKey, Array.from(this._index));
+  }
+
+  _etagGet(error, value) {
+    if (error) {
+      this._model.emit('error',
+        new ScolaError('500 invalid_data ' + error.message));
+      return;
+    }
+
+    this._model.remote(value.data);
+  }
+
+  _loadGet(error, value) {
+    if (error) {
+      this._model.emit('error', new ScolaError('500 invalid_data ' +
+        error.message));
+      return;
+    }
+
+    this._model.local(value);
+  }
+
+  _selectGet(error, value) {
+    if (error) {
+      this._model.emit('error',
+        new ScolaError('500 invalid_data ' + error.message));
+      return;
+    }
+
+    this._model.etag(value ? value.etag : false);
+    this._model.total(value ? value.total : 0);
+
+    if (this._model.connected()) {
+      this._model.select();
+    } else if (value) {
+      this._model.remote(value.data);
+    } else {
+      this._model.emit('error',
+        new ScolaError('500 invalid_data Cache is empty'));
+    }
   }
 
   _getItem(key, callback) {
