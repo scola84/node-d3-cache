@@ -7,11 +7,12 @@ export default class Cache {
     this._storage = null;
     this._index = null;
 
+    this._handleCache = () => this._cache();
     this._handleError = (e) => this._error(e);
     this._handlePublish = (e) => this._publish(e);
     this._handleSet = () => this._set();
     this._handleSelect = (d, t, e) => this._select(d, t, e);
-    this._handleEtag = () => this._etag();
+    this._handleTotal = () => this._set();
   }
 
   destroy() {
@@ -76,20 +77,22 @@ export default class Cache {
   _bindModel() {
     if (this._model) {
       this._model.on('error', this._handleError);
-      this._model.on('etag', this._handleEtag);
+      this._model.on('cache', this._handleCache);
       this._model.on('publish', this._handlePublish);
       this._model.on('select', this._handleSelect);
       this._model.on('set', this._handleSet);
+      this._model.on('total', this._handleTotal);
     }
   }
 
   _unbindModel() {
     if (this._model) {
       this._model.removeListener('error', this._handleError);
-      this._model.removeListener('etag', this._handleEtag);
+      this._model.removeListener('cache', this._handleCache);
       this._model.removeListener('publish', this._handlePublish);
       this._model.removeListener('select', this._handleSelect);
       this._model.removeListener('set', this._handleSet);
+      this._model.removeListener('total', this._handleTotal);
     }
   }
 
@@ -101,19 +104,19 @@ export default class Cache {
     this._delete();
   }
 
-  _etag() {
+  _cache() {
     const key = this._model.mode() === 'list' ?
       this._listKey() : this._objectKey();
 
     const syncValue = this._getItem(key, (error, value) => {
-      this._etagGet(error, value);
+      this._cacheGet(error, value);
     });
 
     if (syncValue instanceof Promise) {
       return this;
     }
 
-    this._etagGet(null, syncValue);
+    this._cacheGet(null, syncValue);
     return this;
   }
 
@@ -128,7 +131,7 @@ export default class Cache {
     this._delete();
   }
 
-  _select(data, total, etag) {
+  _select(data, etag) {
     const key = this._model.mode() === 'list' ?
       this._listKey() : this._objectKey();
 
@@ -136,13 +139,15 @@ export default class Cache {
 
     this._setItem(key, {
       etag,
-      data,
-      total
+      data
     });
   }
 
   _set() {
-    this._setItem(this._modelKey(), this._model.local());
+    this._setItem(this._modelKey(), {
+      local: this._model.local(),
+      total: this._model.total()
+    });
   }
 
   _delete() {
@@ -232,7 +237,7 @@ export default class Cache {
     this._setItem(indexKey, Array.from(this._index));
   }
 
-  _etagGet(error, value) {
+  _cacheGet(error, value) {
     if (error) {
       this._model.emit('error',
         new ScolaError('500 invalid_data ' + error.message));
@@ -249,7 +254,8 @@ export default class Cache {
       return;
     }
 
-    this._model.local(value);
+    this._model.local(value.local);
+    this._model.total(value.total);
   }
 
   _selectGet(error, value) {
@@ -260,7 +266,6 @@ export default class Cache {
     }
 
     this._model.etag(value ? value.etag : false);
-    this._model.total(value ? value.total : 0);
 
     if (this._model.connected()) {
       this._model.select();
