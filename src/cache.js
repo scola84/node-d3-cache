@@ -254,6 +254,10 @@ export default class Cache {
       return;
     }
 
+    if (!value) {
+      return;
+    }
+
     this._model.local(value.local);
     this._model.total(value.total);
   }
