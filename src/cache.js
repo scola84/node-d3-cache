@@ -7,7 +7,14 @@ export default class Cache {
     this._storage = null;
     this._index = null;
 
+    this._serialize = (v) => v;
+    this._deserialize = (v) => v;
+
+    this._local = false;
+    this._remote = false;
+
     this._handleCache = () => this._cache();
+    this._handleClear = () => this._clear();
     this._handleError = (e) => this._error(e);
     this._handlePublish = (e) => this._publish(e);
     this._handleSet = () => this._set();
@@ -16,8 +23,8 @@ export default class Cache {
   }
 
   destroy() {
-    this._unbindModel();
-    this._destroy(true);
+    this._bindLocal();
+    this._bindRemote();
 
     this._model = null;
     this._storage = null;
@@ -29,7 +36,9 @@ export default class Cache {
     }
 
     this._model = value;
-    this._bindModel();
+
+    this.local(true);
+    this.remote(true);
 
     return this;
   }
@@ -40,6 +49,52 @@ export default class Cache {
     }
 
     this._storage = value;
+    return this;
+  }
+
+  serialize(value = null) {
+    if (value === null) {
+      return this._serialize;
+    }
+
+    this._serialize = value;
+    return this;
+  }
+
+  deserialize(value = null) {
+    if (value === null) {
+      return this._deserialize;
+    }
+
+    this._deserialize = value;
+    return this;
+  }
+
+  local(value = null) {
+    if (value === null) {
+      return this._local;
+    }
+
+    if (value === true) {
+      this._bindLocal();
+    } else if (value === false) {
+      this._unbindLocal();
+    }
+
+    return this;
+  }
+
+  remote(value = null) {
+    if (value === null) {
+      return this._remote;
+    }
+
+    if (value === true) {
+      this._bindRemote();
+    } else if (value === false) {
+      this._unbindRemote();
+    }
+
     return this;
   }
 
@@ -74,34 +129,38 @@ export default class Cache {
     return this;
   }
 
-  _bindModel() {
+  _bindLocal() {
     if (this._model) {
-      this._model.on('error', this._handleError);
+      this._model.on('set', this._handleSet);
+    }
+  }
+
+  _unbindLocal() {
+    if (this._model) {
+      this._model.removeListener('set', this._handleSet);
+    }
+  }
+
+  _bindRemote() {
+    if (this._model) {
       this._model.on('cache', this._handleCache);
+      this._model.on('clear', this._handleClear);
+      this._model.on('error', this._handleError);
       this._model.on('publish', this._handlePublish);
       this._model.on('select', this._handleSelect);
-      this._model.on('set', this._handleSet);
       this._model.on('total', this._handleTotal);
     }
   }
 
-  _unbindModel() {
+  _unbindRemote() {
     if (this._model) {
-      this._model.removeListener('error', this._handleError);
       this._model.removeListener('cache', this._handleCache);
+      this._model.removeListener('clear', this._handleClear);
+      this._model.removeListener('error', this._handleError);
       this._model.removeListener('publish', this._handlePublish);
       this._model.removeListener('select', this._handleSelect);
-      this._model.removeListener('set', this._handleSet);
       this._model.removeListener('total', this._handleTotal);
     }
-  }
-
-  _error(error) {
-    if (error.status !== 404) {
-      return;
-    }
-
-    this._delete();
   }
 
   _cache() {
@@ -118,6 +177,33 @@ export default class Cache {
 
     this._cacheGet(null, syncValue);
     return this;
+  }
+
+  _clear() {
+    this._removeItem(this._modelKey());
+
+    const key = this._model.mode() === 'list' ?
+      this._listKey() : this._objectKey();
+
+    this._removeItem(key);
+
+    if (!this._index) {
+      return;
+    }
+
+    this._index.forEach((dataKey) => {
+      this._removeItem(dataKey);
+    });
+
+    this._index.clear();
+  }
+
+  _error(error) {
+    if (error.status !== 404) {
+      return;
+    }
+
+    this._delete();
   }
 
   _publish(event) {
@@ -144,9 +230,12 @@ export default class Cache {
   }
 
   _set() {
+    const local = this._serialize(this._model.local());
+    const total = this._model.total();
+
     this._setItem(this._modelKey(), {
-      local: this._model.local(),
-      total: this._model.total()
+      local,
+      total
     });
   }
 
@@ -156,23 +245,6 @@ export default class Cache {
 
     this._deleteKey(key);
     this._removeItem(key);
-  }
-
-  _destroy(full = false) {
-    if (full === true) {
-      this._removeItem(this._modelKey());
-    }
-
-    const key = this._model.mode() === 'list' ?
-      this._listKey() : this._objectKey();
-
-    this._removeItem(key);
-
-    this._index.forEach((dataKey) => {
-      this._removeItem(dataKey);
-    });
-
-    this._index.clear();
   }
 
   _addKey(key) {
@@ -244,6 +316,10 @@ export default class Cache {
       return;
     }
 
+    if (!value) {
+      return;
+    }
+
     this._model.remote(value.data);
   }
 
@@ -258,14 +334,21 @@ export default class Cache {
       return;
     }
 
-    this._model.local(value.local);
-    this._model.total(value.total);
+    const local = this._deserialize(value.local);
+    const total = value.total;
+
+    this._model.local(local);
+    this._model.total(total);
   }
 
   _selectGet(error, value) {
     if (error) {
       this._model.emit('error',
         new ScolaError('500 invalid_data ' + error.message));
+      return;
+    }
+
+    if (!value) {
       return;
     }
 
