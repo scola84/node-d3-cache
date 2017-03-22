@@ -10,8 +10,8 @@ export default class Cache {
     this._serialize = (v) => v;
     this._deserialize = (v) => v;
 
-    this._local = false;
-    this._remote = false;
+    this._local = true;
+    this._remote = true;
 
     this._handleCache = () => this._cache();
     this._handleClear = () => this._clear();
@@ -37,8 +37,13 @@ export default class Cache {
 
     this._model = value;
 
-    this.local(true);
-    this.remote(true);
+    if (this._local === true) {
+      this.local(true);
+    }
+
+    if (this._remote === true) {
+      this.remote(true);
+    }
 
     return this;
   }
@@ -75,6 +80,8 @@ export default class Cache {
       return this._local;
     }
 
+    this._local = value;
+
     if (value === true) {
       this._bindLocal();
     } else if (value === false) {
@@ -88,6 +95,8 @@ export default class Cache {
     if (value === null) {
       return this._remote;
     }
+
+    this._remote = value;
 
     if (value === true) {
       this._bindRemote();
