@@ -23,8 +23,9 @@ export default class Cache {
   }
 
   destroy() {
-    this._bindLocal();
-    this._bindRemote();
+    this._unbindModel();
+    this._unbindLocal();
+    this._unbindRemote();
 
     this._model = null;
     this._storage = null;
@@ -36,6 +37,7 @@ export default class Cache {
     }
 
     this._model = value;
+    this._bindModel();
 
     if (this._local === true) {
       this.local(true);
@@ -138,6 +140,18 @@ export default class Cache {
     return this;
   }
 
+  _bindModel() {
+    if (this._model) {
+      this._model.on('clear', this._handleClear);
+    }
+  }
+
+  _unbindModel() {
+    if (this._model) {
+      this._model.removeListener('clear', this._handleClear);
+    }
+  }
+
   _bindLocal() {
     if (this._model) {
       this._model.on('set', this._handleSet);
@@ -153,7 +167,6 @@ export default class Cache {
   _bindRemote() {
     if (this._model) {
       this._model.on('cache', this._handleCache);
-      this._model.on('clear', this._handleClear);
       this._model.on('error', this._handleError);
       this._model.on('publish', this._handlePublish);
       this._model.on('select', this._handleSelect);
@@ -164,7 +177,6 @@ export default class Cache {
   _unbindRemote() {
     if (this._model) {
       this._model.removeListener('cache', this._handleCache);
-      this._model.removeListener('clear', this._handleClear);
       this._model.removeListener('error', this._handleError);
       this._model.removeListener('publish', this._handlePublish);
       this._model.removeListener('select', this._handleSelect);
