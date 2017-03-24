@@ -337,11 +337,9 @@ export default class Cache {
       return;
     }
 
-    if (!value) {
-      return;
+    if (value) {
+      this._model.remote(value.data);
     }
-
-    this._model.remote(value.data);
   }
 
   _loadGet(error, value) {
@@ -369,11 +367,9 @@ export default class Cache {
       return;
     }
 
-    if (!value) {
-      return;
+    if (value) {
+      this._model.etag(value ? value.etag : false);
     }
-
-    this._model.etag(value ? value.etag : false);
 
     if (this._model.connected()) {
       this._model.select();
