@@ -17,9 +17,9 @@ export default class Cache {
     this._handleClear = () => this._clear();
     this._handleError = (e) => this._error(e);
     this._handlePublish = (e) => this._publish(e);
-    this._handleSet = () => this._set();
+    this._handleSet = (e) => this._set(e);
     this._handleSelect = (d, t, e) => this._select(d, t, e);
-    this._handleTotal = () => this._set();
+    this._handleTotal = (v) => this._total(v);
   }
 
   destroy() {
@@ -250,7 +250,21 @@ export default class Cache {
     });
   }
 
-  _set() {
+  _set(setEvent) {
+    if (setEvent.changed === false) {
+      return;
+    }
+
+    const local = this._serialize(this._model.local());
+    const total = this._model.total();
+
+    this._setItem(this._modelKey(), {
+      local,
+      total
+    });
+  }
+
+  _total() {
     const local = this._serialize(this._model.local());
     const total = this._model.total();
 
@@ -353,11 +367,11 @@ export default class Cache {
       return;
     }
 
-    const local = this._deserialize(value.local);
     const total = value.total;
+    const local = this._deserialize(value.local);
 
-    this._model.local(local);
     this._model.total(total);
+    this._model.assign(local);
   }
 
   _selectGet(error, value) {
